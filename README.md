@@ -38,6 +38,23 @@ You can finetune the read-ahead for your specific use case, and adjust the numbe
 
 The default the size of each buffer is 1MB, and there are 4 buffers. Do not make your buffers too small since there is a small overhead for passing buffers between goroutines. Other than that you are free to experiment with buffer sizes.
 
+# cancellable seek view
+
+For workloads that seek frequently (for example reading image pyramids or other tiled formats), `NewSeekView` provides a cancellable, bidirectional read-ahead view on top of an `io.ReadSeeker`:
+
+```Go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+v, _ := readahead.NewSeekView(ctx, input, 8, 1<<20)
+defer v.Close() // does NOT close input
+
+v.Seek(4096, io.SeekStart)
+_, _ = io.Copy(output, v)
+```
+
+The view keeps a fixed number of blocks cached around the current offset: a small backward window behind it and a forward pre-fetch window ahead of it. A `Seek` re-centers the window, cancels in-flight pre-fetches that are no longer relevant and keeps overlapping blocks, so late results from stale pre-fetches can never corrupt the new position. `Read`, `Seek` and `WriteTo` unblock immediately when the context is cancelled or `Close` is called. The view uses a single background goroutine for its entire lifetime, no matter how often you seek, and `Close` never closes the underlying reader.
+
 # contributions
 
 On this project contributions in terms of new features is limited to:
